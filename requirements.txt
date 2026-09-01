@@ -1,0 +1,8 @@
+django>=4.2
+djangorestframework>=3.14
+psycopg2-binary
+django-environ
+djangorestframework-simplejwt
+django-cors-headers
+google-genai
+google-auth
