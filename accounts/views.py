@@ -143,7 +143,8 @@ class UserBasicInfoView(APIView):
 
         profile_picture = ''
         if user.profile_picture:
-            profile_picture = request.build_absolute_uri(user.profile_picture.url)
+            uri = request.build_absolute_uri(user.profile_picture.url)
+            profile_picture = uri.replace('http://', 'https://', 1) if not settings.DEBUG else uri
 
         return Response(
             {
@@ -171,7 +172,8 @@ class UserEditProfileView(APIView):
 
         profile_picture_url = None
         if user.profile_picture:
-            profile_picture_url = request.build_absolute_uri(user.profile_picture.url)
+            uri = request.build_absolute_uri(user.profile_picture.url)
+            profile_picture_url = uri.replace('http://', 'https://', 1) if not settings.DEBUG else uri
 
         return Response(
             {

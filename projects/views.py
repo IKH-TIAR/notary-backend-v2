@@ -251,7 +251,8 @@ class UserProjectInfoView(APIView):
         full_name = f'{user.first_name} {user.last_name}'.strip() or user.email
         profile_picture = ''
         if getattr(user, 'profile_picture', None):
-            profile_picture = request.build_absolute_uri(user.profile_picture.url)
+            uri = request.build_absolute_uri(user.profile_picture.url)
+            profile_picture = uri.replace('http://', 'https://', 1) if not settings.DEBUG else uri
 
         pending_count = 0
         issue_count = 0
@@ -622,13 +623,15 @@ class UserProjectAnalysisView(APIView):
         documents_data = []
 
         for doc in docs:
-            request_ctx = {'request': request}
-            file_url = (
-                request.build_absolute_uri(doc.file.url) if doc.file else None
-            )
-            hardcopy_url = (
-                request.build_absolute_uri(doc.hardcopy_file.url) if doc.hardcopy_file else None
-            )
+            file_url = None
+            if doc.file:
+                file_uri = request.build_absolute_uri(doc.file.url)
+                file_url = file_uri.replace('http://', 'https://', 1) if not settings.DEBUG else file_uri
+
+            hardcopy_url = None
+            if doc.hardcopy_file:
+                hardcopy_uri = request.build_absolute_uri(doc.hardcopy_file.url)
+                hardcopy_url = hardcopy_uri.replace('http://', 'https://', 1) if not settings.DEBUG else hardcopy_uri
 
             # Build mismatch list: fields user claimed as signed in-app,
             # but AI found as not signed on the uploaded hardcopy.
