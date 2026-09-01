@@ -13,7 +13,6 @@ ENVIRONMENT
     GEMINI_API_KEY=<your key>
 """
 
-import base64
 import json
 import os
 from pathlib import Path
@@ -28,7 +27,32 @@ from google.genai import types
 # current value from os.environ (populated by django-environ from .env).
 def _get_api_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL   = "gemini-3.1-pro-preview"
+
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
+
+
+def _pdf_to_part(pdf_source: "str | Path | bytes") -> types.Part:
+    """Read a PDF file path or bytes and return an inline Part for the GenAI SDK."""
+    if isinstance(pdf_source, (str, Path)):
+        pdf_bytes = Path(pdf_source).read_bytes()
+    else:
+        pdf_bytes = pdf_source
+    return types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
+
+
+def _get_generation_config(schema: dict) -> types.GenerateContentConfig:
+    """Configure structured JSON output and reasoning effort for Gemini 3.7 Flash."""
+    thinking_level = os.environ.get("GEMINI_THINKING_LEVEL", "medium")
+    config_args = {
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+    }
+    if hasattr(types, "ThinkingConfig"):
+        try:
+            config_args["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+        except Exception:
+            pass
+    return types.GenerateContentConfig(**config_args)
 
 
 # ---------------------------------------------------------------------------
@@ -153,32 +177,13 @@ def analyze_pdf(pdf_source: "str | Path | bytes", file_name: str = "document.pdf
     if not api_key:
         raise EnvironmentError("GEMINI_API_KEY is not set")
 
-    if isinstance(pdf_source, (str, Path)):
-        pdf_bytes = Path(pdf_source).read_bytes()
-    else:
-        pdf_bytes = pdf_source
-
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-
+    pdf_part = _pdf_to_part(pdf_source)
     client = genai.Client(api_key=api_key)
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=types.Content(
-            parts=[
-                types.Part(
-                    inline_data=types.Blob(
-                        mime_type="application/pdf",
-                        data=pdf_b64,
-                    )
-                ),
-                types.Part(text=PROMPT),
-            ]
-        ),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=ANALYSIS_SCHEMA,
-        ),
+        contents=[pdf_part, PROMPT],
+        config=_get_generation_config(ANALYSIS_SCHEMA),
     )
 
     raw = json.loads(response.text or "{}")
@@ -229,12 +234,7 @@ def refine_field(
     if not api_key:
         raise EnvironmentError("GEMINI_API_KEY is not set")
 
-    if isinstance(pdf_source, (str, Path)):
-        pdf_bytes = Path(pdf_source).read_bytes()
-    else:
-        pdf_bytes = pdf_source
-
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    pdf_part = _pdf_to_part(pdf_source)
 
     refine_prompt = f"""
 A user has manually highlighted an area on page {page_number} of this PDF.
@@ -253,18 +253,8 @@ Return ONLY a JSON object: {{ "label": "...", "isSigned": bool, "reasoning": "..
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=types.Content(
-            parts=[
-                types.Part(
-                    inline_data=types.Blob(mime_type="application/pdf", data=pdf_b64)
-                ),
-                types.Part(text=refine_prompt),
-            ]
-        ),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=REFINE_SCHEMA,
-        ),
+        contents=[pdf_part, refine_prompt],
+        config=_get_generation_config(REFINE_SCHEMA),
     )
 
     return json.loads(response.text or "{}")
@@ -333,12 +323,7 @@ def verify_signed_pdf(
     if not api_key:
         raise EnvironmentError("GEMINI_API_KEY is not set")
 
-    if isinstance(hardcopy_source, (str, Path)):
-        pdf_bytes = Path(hardcopy_source).read_bytes()
-    else:
-        pdf_bytes = hardcopy_source
-
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    pdf_part = _pdf_to_part(hardcopy_source)
 
     # Build a readable field list for the prompt
     field_lines = []
@@ -396,18 +381,8 @@ OUTPUT RULES:
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=types.Content(
-            parts=[
-                types.Part(
-                    inline_data=types.Blob(mime_type="application/pdf", data=pdf_b64)
-                ),
-                types.Part(text=verify_prompt),
-            ]
-        ),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=VERIFICATION_SCHEMA,
-        ),
+        contents=[pdf_part, verify_prompt],
+        config=_get_generation_config(VERIFICATION_SCHEMA),
     )
 
     raw = json.loads(response.text or "{}")
